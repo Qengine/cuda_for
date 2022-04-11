@@ -65,7 +65,8 @@ contains
     y = (blockIdx%y-1) * TILE_DIM + threadIdx%y
 
     do j = 0, TILE_DIM-1, BLOCK_ROWS
-       odata(y+j,x) = idata(x,y+j)     
+       !odata(y+j,x) = idata(x,y+j)
+       odata(x, y+j) = idata(y+j,x)
     end do
   end subroutine transposeNaive
 
@@ -175,6 +176,21 @@ contains
        odata(x,y+j) = tile(threadIdx%y+j, threadIdx%x)
     end do
   end subroutine transposeDiagonal
+  
+  subroutine transposeCuf(odata, idata)
+    real, intent(out), device :: odata(ny,nx)
+    real, intent(in), device :: idata(nx,ny)
+    integer :: i, j
+    
+    !$cuf kernel do(2) <<<*, *>>>
+    do i = 1, nx
+        do j = 1, ny
+             odata(j, i) = idata(i, j)
+            !odata(i, j) = idata(j, i)
+        end do
+    end do
+  
+  end subroutine transposeCuf
   
 end module kernels_m
 
@@ -358,6 +374,29 @@ program transposeTest
   istat = cudaEventRecord(startEvent, 0)
   do i=1, NUM_REPS
      call transposeDiagonal<<<grid, tBlock>>>(trp_d, in_d)
+  end do
+  istat = cudaEventRecord(stopEvent, 0)
+  istat = cudaEventSynchronize(stopEvent)
+  istat = cudaEventElapsedTime(time, startEvent, stopEvent)
+
+  trp_h = trp_d
+  call postprocess(gold, trp_h, time)
+  
+  
+  
+  !------------
+  !transposeCuf
+  !------------
+  
+  write(*,'(a25)', advance='NO') 'cuf transpose'
+
+  trp_d = -1.0
+  ! warmup
+  call transposeCuf(trp_d, in_d)
+
+  istat = cudaEventRecord(startEvent, 0)
+  do i=1, NUM_REPS
+     call transposeCuf(trp_d, in_d)
   end do
   istat = cudaEventRecord(stopEvent, 0)
   istat = cudaEventSynchronize(stopEvent)
