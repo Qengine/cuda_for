@@ -5,11 +5,12 @@ program cufft1dTest
     implicit none
     
     integer, parameter :: n = 512
+    real(8), parameter :: eps = 1d-14 ! accuracy
     
     ! Managed variables may be used in both host and device code
     complex(8), managed :: a(n), b(n) 
     
-    real x
+    real(8) x
     integer plan, ierr
     logical passing
     
@@ -23,7 +24,7 @@ program cufft1dTest
     x = maxval(abs(a-b/(n)))
     write(*,*) 'Max error Z2Z: ', x
     
-    passing = x .le. 1.0e-5
+    passing = x .le. eps
     
     ierr = ierr + cufftDestroy(plan)
     print *,ierr
