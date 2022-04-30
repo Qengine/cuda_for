@@ -1,0 +1,167 @@
+! Fourier transforamtion of the gauss function fun(x) to fun_four(p) 
+! fun(x) defined interval [-l, l]
+! fun_four(p) defined on [-pi*n/l, pi*n/l]
+
+! complilation:  nvfortran -cudalib=cufft cufft1d_gauss_test.cuf
+program cufft1d_gauss
+    use cudafor
+    use cufft
+    implicit none
+    
+    integer, parameter :: n = 1024
+    
+    ! Managed variables may be used in both host and device code
+    complex(8), allocatable, managed :: fun(:), fun_four(:) 
+    
+    ! for analytic FT
+    complex(8), allocatable :: fun_four_an(:)
+    
+    ! interval length
+    real(8), parameter :: l = 10.d0
+    
+    ! gaussian parameters
+    real(8), parameter :: a = 0.1d0
+    real(8), parameter :: x0 = -1.d0
+    real(8), parameter :: p0 = 1.d0
+    
+    real(8), allocatable :: x(:), p(:)
+    real(8) dx
+    real(8) diff
+    
+    integer plan, ierr
+    integer i
+    
+    allocate(fun(n))
+    allocate(fun_four(n))
+    allocate(fun_four_an(n))
+    allocate(x(n))
+    allocate(p(n))
+    
+    
+    dx = l / n
+    
+    do i = 1, n/2 + 1
+        x(i) = (i - 1) * dx
+    end do
+    
+    do i = n/2 + 2, n 
+        x(i) = -l + (i - 1) * dx
+    end do
+    
+    call four_arg(p, n, l)
+    
+    do i = 1, n
+        fun_four_an(i) = gauss_four(p(i), a, x0, p0)
+    end do
+
+    do i = 1, n 
+        fun(i) = gauss(x(i), a, x0, p0)
+    end do
+    
+    call write_fun('fun.txt', x, fun)
+    
+    ierr = cufftPlan1D(plan, n, CUFFT_Z2Z, 1)
+    
+    ierr = ierr + cufftExecZ2Z(plan, fun, fun_four, CUFFT_FORWARD)
+    
+    ! it's necessary call   
+    ierr = ierr + cudaDeviceSynchronize()
+    
+    do i = 1, n 
+        fun_four(i) = fun_four(i) * dx
+    end do
+    
+    if (ierr .eq. 0) then
+        print *,"Test PASSED"
+    else
+        print *,"Test FAILED"
+    end if
+    
+    call write_fun('fun_four.txt', p, fun_four)
+    call write_fun('fun_four_an.txt', p, fun_four_an)
+    
+    diff = maxval(abs(fun_four_an - fun_four))
+    
+    write(*,*) 'Max error Z2Z: ', diff
+    
+    deallocate(fun)
+    deallocate(fun_four)
+    deallocate(x)
+    deallocate(p)
+    deallocate(fun_four_an)
+    
+    contains
+    
+        function gauss(x, a, x0, p0)
+            implicit none
+            real(8) x
+            real(8) a
+            real(8) x0
+            real(8) p0
+            complex(8) gauss
+        
+            gauss = exp(-(x - x0)**2 / a**2 / 2.d0 + (0.0d0, 1.0d0) * p0 * x)
+        end function gauss
+        
+        
+        function gauss_four(p, a, x0, p0)
+            implicit none
+            real(8) p
+            real(8) a
+            real(8) x0
+            real(8) p0
+            complex(8) gauss_four
+            real(8), parameter :: pi = 4.d0*datan(1.d0)
+            
+            gauss_four = exp((0.0d0, -1.0d0) * x0 * (p - p0)) * &
+                         exp(-a**2 / 2.d0 * (p - p0)**2) * &
+                         (pi * 2.d0)**0.5d0 * a 
+            
+            
+        end function gauss_four
+        
+        subroutine four_arg(p, n, l)
+            implicit none
+            real(8), intent(out) :: p(:)
+            integer n 
+            real(8) l
+            real(8), parameter :: pi = 4.d0*datan(1.d0)
+            integer i
+            real(8) dp
+            
+            dp = 2.d0 * pi / l
+            
+            do i = 1, n / 2 + 1
+                p(i) = (i - 1) * dp
+            end do
+            
+            do i = n/2 + 2, n
+                p(i) = -(n - 2) * pi / l + dp * (i - n/2 - 2) 
+            end do
+            
+        end subroutine four_arg
+        
+        subroutine write_fun(fname, args, fun)
+            implicit none
+            character(:) fname
+            complex(8) fun(:)
+            real(8) args(:)
+            integer n 
+            integer i
+            
+            n = size(fun)
+            
+            open(10, file = fname)
+            do i = n/2 + 2, n
+                write(10, *) args(i), real(fun(i)), aimag(fun(i))
+            end do
+            
+            do i = 1, n/2 + 1
+                write(10, *) args(i), real(fun(i)), aimag(fun(i))
+            end do
+            close(10)
+        end subroutine write_fun
+    
+end program cufft1d_gauss
+
+
